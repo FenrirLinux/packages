@@ -120,7 +120,12 @@ for dir in "$WORK/src/fenrir-keyring" "$WORK/src"/*/; do
     done < <(awk '$1 == "validpgpkeys" {print $3}' <<< "$srcinfo")
     sign_opt=(--nosign)
     ((SIGN)) && sign_opt=(--sign)
-    as_builder makepkg --syncdeps --noconfirm --clean --cleanbuild --force "${sign_opt[@]}"
+    # Fenrir's own packages only copy files: their runtime dependencies
+    # (CachyOS keyring, fenrir-keyring, ...) aren't needed, or even
+    # available, in the build container. Real builds (openrc) get theirs.
+    deps_opt=(--syncdeps)
+    [[ $name == fenrir-* ]] && deps_opt=(--nodeps)
+    as_builder makepkg "${deps_opt[@]}" --noconfirm --clean --cleanbuild --force "${sign_opt[@]}"
     built=$((built + 1))
 done
 
