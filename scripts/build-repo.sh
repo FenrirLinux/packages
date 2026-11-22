@@ -129,6 +129,23 @@ for dir in "$WORK/src/fenrir-keyring" "$WORK/src"/*/; do
     built=$((built + 1))
 done
 
+# Make sure the branding really is compiled into openrc.
+shopt -s nullglob
+for pkg in "$WORK"/pkgs/openrc-[0-9]*.pkg.tar.zst; do
+    check=$WORK/openrc-check
+    mkdir -p "$check"
+    bsdtar -xf "$pkg" -C "$check" usr
+    if grep -rqa 'Fenrir Linux' "$check/usr"; then
+        msg "openrc: branding verified ($(grep -rla 'Fenrir Linux' "$check/usr" | sed "s|$check||" | tr '\n' ' '))"
+    else
+        die "openrc was built without the Fenrir Linux branding"
+    fi
+    if grep -rqa 'Artix Linux' "$check/usr/bin" "$check/usr/lib" 2>/dev/null; then
+        die "openrc still contains 'Artix Linux'"
+    fi
+done
+shopt -u nullglob
+
 # ------------------------------------------------------------------------------
 # Database
 # ------------------------------------------------------------------------------
