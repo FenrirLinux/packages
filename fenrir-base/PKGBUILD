@@ -1,0 +1,41 @@
+# Maintainer: Fenrir Linux <https://fenrirlinux.org>
+
+pkgname=fenrir-base
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Fenrir Linux base system: branding, repositories, scx service, gaming tweaks'
+arch=('any')
+url='https://github.com/FenrirLinux/packages'
+license=('GPL-3.0-or-later')
+depends=(
+    'bash' 'pacman' 'openrc' 'elogind-openrc' 'pciutils'
+    'fenrir-keyring' 'artix-archlinux-support' 'cachyos-keyring' 'cachyos-mirrorlist'
+)
+optdepends=(
+    'scx-scheds: sched_ext schedulers for the scx service'
+    'fenrir-desktop: KDE gaming desktop defaults and GUI tools'
+)
+backup=('etc/conf.d/scx')
+install=fenrir-base.install
+source=(
+    'os-release'
+    'fenrir-os-release'
+    'fenrir-pacman-setup'
+    'fenrir-nvidia-setup'
+    'zz-fenrir-os-release.hook'
+    'scx.initd'
+    'scx.confd'
+    '99-fenrir-gaming.conf'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+    install -Dm644 os-release "$pkgdir/usr/share/fenrir/os-release"
+    install -Dm755 fenrir-os-release "$pkgdir/usr/bin/fenrir-os-release"
+    install -Dm755 fenrir-pacman-setup "$pkgdir/usr/bin/fenrir-pacman-setup"
+    install -Dm755 fenrir-nvidia-setup "$pkgdir/usr/bin/fenrir-nvidia-setup"
+    install -Dm644 zz-fenrir-os-release.hook "$pkgdir/usr/share/libalpm/hooks/zz-fenrir-os-release.hook"
+    install -Dm755 scx.initd "$pkgdir/etc/init.d/scx"
+    install -Dm644 scx.confd "$pkgdir/etc/conf.d/scx"
+    install -Dm644 99-fenrir-gaming.conf "$pkgdir/usr/lib/sysctl.d/99-fenrir-gaming.conf"
+}

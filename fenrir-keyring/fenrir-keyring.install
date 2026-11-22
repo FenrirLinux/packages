@@ -1,0 +1,11 @@
+post_install() {
+    # Same as archlinux-keyring: add the keys if the keyring exists already.
+    # (A fresh install runs "pacman-key --populate fenrir" itself.)
+    if [ -f usr/bin/pacman-key ] && { [ -s etc/pacman.d/gnupg/pubring.gpg ] || [ -s etc/pacman.d/gnupg/pubring.kbx ]; }; then
+        usr/bin/pacman-key --populate fenrir >/dev/null
+    fi
+}
+
+post_upgrade() {
+    post_install
+}

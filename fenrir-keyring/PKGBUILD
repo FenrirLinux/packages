@@ -1,0 +1,16 @@
+# Maintainer: Fenrir Linux <https://fenrirlinux.org>
+
+pkgname=fenrir-keyring
+pkgver=20261122
+pkgrel=1
+pkgdesc='Fenrir Linux package signing keys'
+arch=('any')
+url='https://github.com/FenrirLinux/packages'
+license=('GPL-3.0-or-later')
+install=fenrir-keyring.install
+source=('fenrir.gpg' 'fenrir-trusted' 'fenrir-revoked')
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+package() {
+    install -Dm644 -t "$pkgdir/usr/share/pacman/keyrings" fenrir.gpg fenrir-trusted fenrir-revoked
+}

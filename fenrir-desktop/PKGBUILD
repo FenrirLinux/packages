@@ -1,0 +1,40 @@
+# Maintainer: Fenrir Linux <https://fenrirlinux.org>
+
+pkgname=fenrir-desktop
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Fenrir Linux desktop: PipeWire session startup, driver manager, kernel switcher, browser defaults'
+arch=('any')
+url='https://github.com/FenrirLinux/packages'
+license=('GPL-3.0-or-later')
+depends=(
+    'fenrir-base' 'zenity' 'polkit'
+    'pipewire' 'pipewire-pulse' 'wireplumber'
+)
+optdepends=(
+    'firefox: Fenrir Browser (uses the bundled policies and defaults)'
+    'grub: kernel switcher updates the GRUB menu'
+)
+source=(
+    'fenrir-pipewire-launcher'
+    'fenrir-pipewire.desktop'
+    'fenrir-driver-manager'
+    'fenrir-driver-manager.desktop'
+    'fenrir-kernel-switcher'
+    'fenrir-kernel-switcher.desktop'
+    'fenrir-browser.desktop'
+    'policies.json'
+    'fenrir.js'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+    install -Dm755 fenrir-pipewire-launcher "$pkgdir/usr/bin/fenrir-pipewire-launcher"
+    install -Dm644 fenrir-pipewire.desktop "$pkgdir/etc/xdg/autostart/fenrir-pipewire.desktop"
+    install -Dm755 fenrir-driver-manager "$pkgdir/usr/bin/fenrir-driver-manager"
+    install -Dm755 fenrir-kernel-switcher "$pkgdir/usr/bin/fenrir-kernel-switcher"
+    install -Dm644 -t "$pkgdir/usr/share/applications" \
+        fenrir-driver-manager.desktop fenrir-kernel-switcher.desktop fenrir-browser.desktop
+    install -Dm644 policies.json "$pkgdir/usr/lib/firefox/distribution/policies.json"
+    install -Dm644 fenrir.js "$pkgdir/usr/lib/firefox/browser/defaults/preferences/fenrir.js"
+}

@@ -1,0 +1,10 @@
+post_install() {
+    /usr/bin/fenrir-pacman-setup
+    /usr/bin/fenrir-os-release
+    # gamemode's polkit rules use this group.
+    getent group gamemode >/dev/null || groupadd -r gamemode
+}
+
+post_upgrade() {
+    post_install
+}

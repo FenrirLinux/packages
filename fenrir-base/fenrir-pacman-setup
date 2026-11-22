@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# fenrir-pacman-setup: make sure /etc/pacman.conf has the repos Fenrir Linux
+# needs, in the right order. Run by the fenrir-base package on install and
+# upgrade; safe to run any number of times. Never removes anything.
+#
+#   [fenrir]                 first, so Fenrir's builds (e.g. OpenRC with
+#                            Fenrir branding) win over Artix's
+#   [system] [world] [galaxy] [lib32]    Artix (lib32 gets uncommented)
+#   [extra] [multilib]       Arch, as a fallback (artix-archlinux-support)
+#   [cachyos]                last: kernel, scx schedulers, NVIDIA modules
+#
+#   fenrir-pacman-setup [path/to/pacman.conf]
+# ==============================================================================
+
+set -euo pipefail
+
+CONF=${1:-/etc/pacman.conf}
+FENRIR_SERVER='https://github.com/FenrirLinux/packages/releases/download/repo'
+
+[[ -f $CONF ]] || { echo "fenrir-pacman-setup: $CONF not found" >&2; exit 1; }
+
+has_repo() { grep -qE "^\[$1\][[:space:]]*$" "$CONF"; }
+
+changed=0
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+
+# [fenrir] before the first repo section.
+if ! has_repo fenrir; then
+    awk -v server="$FENRIR_SERVER" '
+        !done && /^\[/ && !/^\[options\]/ {
+            print "[fenrir]"
+            print "Server = " server
+            print ""
+            done = 1
+        }
+        { print }
+        END {
+            if (!done) { print ""; print "[fenrir]"; print "Server = " server }
+        }' "$CONF" > "$tmp"
+    cat "$tmp" > "$CONF"
+    changed=1
+fi
+
+# Artix [lib32] ships commented out; Steam and Wine need it.
+if ! has_repo lib32 && grep -qE '^#[[:space:]]*\[lib32\]' "$CONF"; then
+    awk '
+        /^#[[:space:]]*\[lib32\]/ { sub(/^#[[:space:]]*/, ""); print; uncomment = 1; next }
+        uncomment && /^#[[:space:]]*Include/ { sub(/^#[[:space:]]*/, ""); print; uncomment = 0; next }
+        { uncomment = 0; print }' "$CONF" > "$tmp"
+    cat "$tmp" > "$CONF"
+    changed=1
+fi
+
+append_repo() {
+    local name=$1 include=$2
+    if ! has_repo "$name"; then
+        printf '\n[%s]\nInclude = %s\n' "$name" "$include" >> "$CONF"
+        changed=1
+    fi
+}
+
+if ! has_repo lib32; then append_repo lib32 /etc/pacman.d/mirrorlist; fi
+[[ -f /etc/pacman.d/mirrorlist-arch ]] && append_repo extra /etc/pacman.d/mirrorlist-arch
+[[ -f /etc/pacman.d/mirrorlist-arch ]] && append_repo multilib /etc/pacman.d/mirrorlist-arch
+[[ -f /etc/pacman.d/cachyos-mirrorlist ]] && append_repo cachyos /etc/pacman.d/cachyos-mirrorlist
+
+if ((changed)); then
+    echo "fenrir-pacman-setup: updated $CONF; run 'pacman -Sy' to refresh the package databases"
+fi

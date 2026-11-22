@@ -1,0 +1,86 @@
+name: Build repository
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Daily: picks up new Artix openrc releases and rebuilds with Fenrir branding.
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: repo
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning scripts/*.sh \
+            fenrir-base/fenrir-pacman-setup fenrir-base/fenrir-os-release \
+            fenrir-base/fenrir-nvidia-setup fenrir-desktop/fenrir-driver-manager \
+            fenrir-desktop/fenrir-kernel-switcher fenrir-desktop/fenrir-pipewire-launcher
+          for f in */PKGBUILD */*.install; do bash -n "$f"; done
+
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/artixlinux/artixlinux:base-devel
+    steps:
+      - name: Prepare container
+        run: |
+          pacman-key --init
+          pacman-key --populate artix
+          pacman -Syu --noconfirm --needed git sudo curl
+      - uses: actions/checkout@v4
+      - name: Build packages
+        env:
+          FENRIR_GPG_PRIVATE_KEY: ${{ secrets.FENRIR_GPG_PRIVATE_KEY }}
+        run: ./scripts/build-repo.sh "$GITHUB_WORKSPACE/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repo
+          path: out/
+          retention-days: 7
+
+  publish:
+    # Pull requests only build; main, the schedule and manual runs publish.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: repo
+          path: out
+      - name: Publish to the "repo" release
+        run: |
+          set -euo pipefail
+          if [ "$(cat out/built-count)" = "0" ]; then
+            echo "Nothing new to publish."
+            exit 0
+          fi
+          gh release view repo >/dev/null 2>&1 || gh release create repo \
+            --title "Fenrir Linux package repository" \
+            --notes "pacman repository. Add to /etc/pacman.conf (fenrir-base does this for you):
+
+          [fenrir]
+          Server = https://github.com/${GH_REPO}/releases/download/repo"
+          find out -maxdepth 1 -type f ! -name keep.txt ! -name built-count -print0 \
+            | xargs -0 gh release upload repo --clobber
+          # Remove superseded package versions.
+          gh release view repo --json assets --jq '.assets[].name' | while read -r asset; do
+            grep -qxF "$asset" out/keep.txt || gh release delete-asset repo "$asset" --yes
+          done
+          echo "Published:"; gh release view repo --json assets --jq '.assets[].name'
