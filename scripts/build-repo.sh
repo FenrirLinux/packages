@@ -66,6 +66,12 @@ if ((SIGN)); then
     unset key_text
     KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
     [[ -n $KEY ]] || die "could not import the signing key"
+    # Only sign with the key fenrir-keyring tells users to trust.
+    grep -qx "$KEY:4:" "$REPO_DIR/fenrir-keyring/fenrir-trusted" \
+        || die "FENRIR_GPG_PRIVATE_KEY holds key $KEY, which isn't in fenrir-keyring/fenrir-trusted (old or wrong key?)"
+    if grep -qx "$KEY" "$REPO_DIR/fenrir-keyring/fenrir-revoked"; then
+        die "FENRIR_GPG_PRIVATE_KEY holds the revoked key $KEY; replace the secret with the current key"
+    fi
     msg "Signing with key $KEY"
 fi
 as_builder tee "/home/$BUILD_USER/.makepkg.conf" >/dev/null <<EOF
