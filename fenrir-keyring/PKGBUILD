@@ -2,7 +2,7 @@
 
 pkgname=fenrir-keyring
 pkgver=20261122
-pkgrel=1
+pkgrel=2
 pkgdesc='Fenrir Linux package signing keys'
 arch=('any')
 url='https://github.com/FenrirLinux/packages'

@@ -20,7 +20,7 @@ system, or by hand:
 # Trust the Fenrir key
 curl -LO https://github.com/FenrirLinux/packages/releases/download/repo/fenrir.gpg  # or take it from this repo
 sudo pacman-key --add fenrir-keyring/fenrir.gpg
-sudo pacman-key --lsign-key 598E705FC472CEE4EEF809E3D05B82361E7C6C0E
+sudo pacman-key --lsign-key 4581C968246C120EA57FA4E3B7933835D7CF661A
 
 # Add the repo ABOVE [system] in /etc/pacman.conf, so Fenrir's openrc wins:
 #   [fenrir]
@@ -31,7 +31,7 @@ sudo pacman -Syu fenrir-keyring fenrir-base
 
 After that, `fenrir-base` keeps `pacman.conf` set up on every update.
 
-Key fingerprint: `598E 705F C472 CEE4 EEF8  09E3 D05B 8236 1E7C 6C0E`
+Key fingerprint: `4581 C968 246C 120E A57F  A4E3 B793 3835 D7CF 661A`
 
 ## How builds work
 

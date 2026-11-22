@@ -57,8 +57,12 @@ if ((SIGN)); then
         key_text=$(printf '%s' "$key_text" | tr -d ' \n' | base64 -d 2>/dev/null) \
             || die "FENRIR_GPG_PRIVATE_KEY is neither an armored key nor base64 of one"
     fi
-    printf '%s\n' "$key_text" | as_builder gpg --batch --quiet --import \
-        || die "could not import FENRIR_GPG_PRIVATE_KEY (re-add the secret from fenrir-private.b64.txt)"
+    # gpg's error messages quote the input it rejects, which would print key
+    # material into the public build log: never show gpg's output here.
+    if ! printf '%s\n' "$key_text" | as_builder gpg --batch --quiet --import >/dev/null 2>&1; then
+        unset key_text
+        die "could not import FENRIR_GPG_PRIVATE_KEY (re-add the secret from fenrir-private.b64.txt)"
+    fi
     unset key_text
     KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
     [[ -n $KEY ]] || die "could not import the signing key"
