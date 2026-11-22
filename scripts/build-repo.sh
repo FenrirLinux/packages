@@ -25,7 +25,14 @@ msg() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m==> ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "run as root inside the build container"
-[[ -n ${FENRIR_GPG_PRIVATE_KEY:-} ]] || die "FENRIR_GPG_PRIVATE_KEY is not set"
+SIGN=1
+if [[ -z ${FENRIR_GPG_PRIVATE_KEY:-} ]]; then
+    # Pull requests (especially from forks) don't get secrets: test-build
+    # without signing. Unsigned output is never published.
+    [[ ${ALLOW_UNSIGNED:-} == 1 ]] || die "FENRIR_GPG_PRIVATE_KEY is not set"
+    SIGN=0
+    echo "WARNING: no signing key; building UNSIGNED packages (test build only)" >&2
+fi
 [[ ! -e $WORK ]] || die "$WORK already exists"
 
 # ------------------------------------------------------------------------------
@@ -40,12 +47,15 @@ chown -R "$BUILD_USER:" "$WORK" "$OUT"
 
 as_builder() { sudo -u "$BUILD_USER" -H "$@"; }
 
-printf '%s\n' "$FENRIR_GPG_PRIVATE_KEY" | as_builder gpg --batch --quiet --import
-KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
-[[ -n $KEY ]] || die "could not import the signing key"
-msg "Signing with key $KEY"
+KEY=""
+if ((SIGN)); then
+    printf '%s\n' "$FENRIR_GPG_PRIVATE_KEY" | as_builder gpg --batch --quiet --import
+    KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
+    [[ -n $KEY ]] || die "could not import the signing key"
+    msg "Signing with key $KEY"
+fi
 as_builder tee "/home/$BUILD_USER/.makepkg.conf" >/dev/null <<EOF
-GPGKEY=$KEY
+${KEY:+GPGKEY=$KEY}
 PKGDEST=$WORK/pkgs
 PKGEXT=.pkg.tar.zst
 EOF
@@ -108,7 +118,9 @@ for dir in "$WORK/src/fenrir-keyring" "$WORK/src"/*/; do
             || as_builder gpg --batch --quiet --keyserver hkps://keys.openpgp.org --recv-keys "$key" \
             || echo "    warning: could not fetch source key $key"
     done < <(awk '$1 == "validpgpkeys" {print $3}' <<< "$srcinfo")
-    as_builder makepkg --syncdeps --noconfirm --clean --cleanbuild --sign --force
+    sign_opt=(--nosign)
+    ((SIGN)) && sign_opt=(--sign)
+    as_builder makepkg --syncdeps --noconfirm --clean --cleanbuild --force "${sign_opt[@]}"
     built=$((built + 1))
 done
 
@@ -119,10 +131,14 @@ shopt -s nullglob
 new_pkgs=("$WORK"/pkgs/*.pkg.tar.zst)
 if ((${#new_pkgs[@]})); then
     msg "Adding ${#new_pkgs[@]} package(s) to the database"
-    as_builder repo-add --sign --key "$KEY" --remove \
+    repo_sign=()
+    ((SIGN)) && repo_sign=(--sign --key "$KEY")
+    as_builder repo-add "${repo_sign[@]}" --remove \
         "$WORK/db/$REPO_NAME.db.tar.gz" "${new_pkgs[@]}"
     cp "${new_pkgs[@]}" "$OUT/"
-    for p in "${new_pkgs[@]}"; do cp "$p.sig" "$OUT/"; done
+    if ((SIGN)); then
+        for p in "${new_pkgs[@]}"; do cp "$p.sig" "$OUT/"; done
+    fi
 else
     msg "Nothing to build"
 fi
