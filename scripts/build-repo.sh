@@ -49,7 +49,17 @@ as_builder() { sudo -u "$BUILD_USER" -H "$@"; }
 
 KEY=""
 if ((SIGN)); then
-    printf '%s\n' "$FENRIR_GPG_PRIVATE_KEY" | as_builder gpg --batch --quiet --import
+    # Accept the armored key or the same file base64-encoded on one line
+    # (paste-proof). Strip what copy/paste tends to add: CRs and
+    # non-breaking spaces.
+    key_text=$(printf '%s' "$FENRIR_GPG_PRIVATE_KEY" | sed -e 's/\xc2\xa0/ /g' -e 's/\r$//')
+    if ! grep -q 'BEGIN PGP PRIVATE KEY BLOCK' <<< "$key_text"; then
+        key_text=$(printf '%s' "$key_text" | tr -d ' \n' | base64 -d 2>/dev/null) \
+            || die "FENRIR_GPG_PRIVATE_KEY is neither an armored key nor base64 of one"
+    fi
+    printf '%s\n' "$key_text" | as_builder gpg --batch --quiet --import \
+        || die "could not import FENRIR_GPG_PRIVATE_KEY (re-add the secret from fenrir-private.b64.txt)"
+    unset key_text
     KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
     [[ -n $KEY ]] || die "could not import the signing key"
     msg "Signing with key $KEY"
