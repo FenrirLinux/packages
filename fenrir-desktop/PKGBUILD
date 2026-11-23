@@ -1,7 +1,7 @@
 # Maintainer: Fenrir Linux <https://fenrirlinux.org>
 
 pkgname=fenrir-desktop
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc='Fenrir Linux desktop: PipeWire session startup, driver manager, kernel switcher, browser defaults'
 arch=('any')
@@ -11,6 +11,7 @@ depends=(
     'fenrir-base' 'zenity' 'polkit'
     'pipewire' 'pipewire-pulse' 'wireplumber'
 )
+backup=('etc/firefox/policies/policies.json')
 optdepends=(
     'firefox: Fenrir Browser (uses the bundled policies and defaults)'
     'grub: kernel switcher updates the GRUB menu'
@@ -35,6 +36,8 @@ package() {
     install -Dm755 fenrir-kernel-switcher "$pkgdir/usr/bin/fenrir-kernel-switcher"
     install -Dm644 -t "$pkgdir/usr/share/applications" \
         fenrir-driver-manager.desktop fenrir-kernel-switcher.desktop fenrir-browser.desktop
-    install -Dm644 policies.json "$pkgdir/usr/lib/firefox/distribution/policies.json"
+    # System-wide policy location (the firefox package owns
+    # /usr/lib/firefox/distribution/policies.json).
+    install -Dm644 policies.json "$pkgdir/etc/firefox/policies/policies.json"
     install -Dm644 fenrir.js "$pkgdir/usr/lib/firefox/browser/defaults/preferences/fenrir.js"
 }
