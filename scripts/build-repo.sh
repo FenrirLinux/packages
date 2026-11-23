@@ -25,7 +25,14 @@ msg() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m==> ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "run as root inside the build container"
-[[ -n ${FENRIR_GPG_PRIVATE_KEY:-} ]] || die "FENRIR_GPG_PRIVATE_KEY is not set"
+SIGN=1
+if [[ -z ${FENRIR_GPG_PRIVATE_KEY:-} ]]; then
+    # Pull requests (especially from forks) don't get secrets: test-build
+    # without signing. Unsigned output is never published.
+    [[ ${ALLOW_UNSIGNED:-} == 1 ]] || die "FENRIR_GPG_PRIVATE_KEY is not set"
+    SIGN=0
+    echo "WARNING: no signing key; building UNSIGNED packages (test build only)" >&2
+fi
 [[ ! -e $WORK ]] || die "$WORK already exists"
 
 # ------------------------------------------------------------------------------
@@ -40,12 +47,35 @@ chown -R "$BUILD_USER:" "$WORK" "$OUT"
 
 as_builder() { sudo -u "$BUILD_USER" -H "$@"; }
 
-printf '%s\n' "$FENRIR_GPG_PRIVATE_KEY" | as_builder gpg --batch --quiet --import
-KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
-[[ -n $KEY ]] || die "could not import the signing key"
-msg "Signing with key $KEY"
+KEY=""
+if ((SIGN)); then
+    # Accept the armored key or the same file base64-encoded on one line
+    # (paste-proof). Strip what copy/paste tends to add: CRs and
+    # non-breaking spaces.
+    key_text=$(printf '%s' "$FENRIR_GPG_PRIVATE_KEY" | sed -e 's/\xc2\xa0/ /g' -e 's/\r$//')
+    if ! grep -q 'BEGIN PGP PRIVATE KEY BLOCK' <<< "$key_text"; then
+        key_text=$(printf '%s' "$key_text" | tr -d ' \n' | base64 -d 2>/dev/null) \
+            || die "FENRIR_GPG_PRIVATE_KEY is neither an armored key nor base64 of one"
+    fi
+    # gpg's error messages quote the input it rejects, which would print key
+    # material into the public build log: never show gpg's output here.
+    if ! printf '%s\n' "$key_text" | as_builder gpg --batch --quiet --import >/dev/null 2>&1; then
+        unset key_text
+        die "could not import FENRIR_GPG_PRIVATE_KEY (re-add the secret from fenrir-private.b64.txt)"
+    fi
+    unset key_text
+    KEY=$(as_builder gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
+    [[ -n $KEY ]] || die "could not import the signing key"
+    # Only sign with the key fenrir-keyring tells users to trust.
+    grep -qx "$KEY:4:" "$REPO_DIR/fenrir-keyring/fenrir-trusted" \
+        || die "FENRIR_GPG_PRIVATE_KEY holds key $KEY, which isn't in fenrir-keyring/fenrir-trusted (old or wrong key?)"
+    if grep -qx "$KEY" "$REPO_DIR/fenrir-keyring/fenrir-revoked"; then
+        die "FENRIR_GPG_PRIVATE_KEY holds the revoked key $KEY; replace the secret with the current key"
+    fi
+    msg "Signing with key $KEY"
+fi
 as_builder tee "/home/$BUILD_USER/.makepkg.conf" >/dev/null <<EOF
-GPGKEY=$KEY
+${KEY:+GPGKEY=$KEY}
 PKGDEST=$WORK/pkgs
 PKGEXT=.pkg.tar.zst
 EOF
@@ -108,9 +138,33 @@ for dir in "$WORK/src/fenrir-keyring" "$WORK/src"/*/; do
             || as_builder gpg --batch --quiet --keyserver hkps://keys.openpgp.org --recv-keys "$key" \
             || echo "    warning: could not fetch source key $key"
     done < <(awk '$1 == "validpgpkeys" {print $3}' <<< "$srcinfo")
-    as_builder makepkg --syncdeps --noconfirm --clean --cleanbuild --sign --force
+    sign_opt=(--nosign)
+    ((SIGN)) && sign_opt=(--sign)
+    # Fenrir's own packages only copy files: their runtime dependencies
+    # (CachyOS keyring, fenrir-keyring, ...) aren't needed, or even
+    # available, in the build container. Real builds (openrc) get theirs.
+    deps_opt=(--syncdeps)
+    [[ $name == fenrir-* ]] && deps_opt=(--nodeps)
+    as_builder makepkg "${deps_opt[@]}" --noconfirm --clean --cleanbuild --force "${sign_opt[@]}"
     built=$((built + 1))
 done
+
+# Make sure the branding really is compiled into openrc.
+shopt -s nullglob
+for pkg in "$WORK"/pkgs/openrc-[0-9]*.pkg.tar.zst; do
+    check=$WORK/openrc-check
+    mkdir -p "$check"
+    bsdtar -xf "$pkg" -C "$check" usr
+    if grep -rqa 'Fenrir Linux' "$check/usr"; then
+        msg "openrc: branding verified ($(grep -rla 'Fenrir Linux' "$check/usr" | sed "s|$check||" | tr '\n' ' '))"
+    else
+        die "openrc was built without the Fenrir Linux branding"
+    fi
+    if grep -rqa 'Artix Linux' "$check/usr/bin" "$check/usr/lib" 2>/dev/null; then
+        die "openrc still contains 'Artix Linux'"
+    fi
+done
+shopt -u nullglob
 
 # ------------------------------------------------------------------------------
 # Database
@@ -119,10 +173,14 @@ shopt -s nullglob
 new_pkgs=("$WORK"/pkgs/*.pkg.tar.zst)
 if ((${#new_pkgs[@]})); then
     msg "Adding ${#new_pkgs[@]} package(s) to the database"
-    as_builder repo-add --sign --key "$KEY" --remove \
+    repo_sign=()
+    ((SIGN)) && repo_sign=(--sign --key "$KEY")
+    as_builder repo-add "${repo_sign[@]}" --remove \
         "$WORK/db/$REPO_NAME.db.tar.gz" "${new_pkgs[@]}"
     cp "${new_pkgs[@]}" "$OUT/"
-    for p in "${new_pkgs[@]}"; do cp "$p.sig" "$OUT/"; done
+    if ((SIGN)); then
+        for p in "${new_pkgs[@]}"; do cp "$p.sig" "$OUT/"; done
+    fi
 else
     msg "Nothing to build"
 fi
